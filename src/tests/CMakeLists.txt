@@ -147,6 +147,12 @@ add_executable(update_checker_tests
 target_link_libraries(update_checker_tests PRIVATE common Catch2::Catch2WithMain)
 add_test(NAME update_checker_tests COMMAND update_checker_tests)
 
+add_executable(data_manager_tests
+    frontend_common/data_manager.cpp
+    ../frontend_common/data_manager.cpp)
+target_link_libraries(data_manager_tests PRIVATE common Catch2::Catch2WithMain)
+add_test(NAME data_manager_tests COMMAND data_manager_tests)
+
 # needed for vma
 if (NOT MSVC)
     target_compile_options(tests PRIVATE
