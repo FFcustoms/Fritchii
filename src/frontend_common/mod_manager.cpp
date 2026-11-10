@@ -17,7 +17,7 @@ std::vector<std::filesystem::path> GetModFolder(const std::string& root) {
     std::vector<std::filesystem::path> paths;
 
     auto callback = [&paths](const std::filesystem::directory_entry& entry) -> bool {
-        const auto name = entry.path().filename().string();
+        const auto name = Common::FS::PathToUTF8String(entry.path().filename());
         static const std::array<std::string, 5> valid_names = {"exefs",
                                                                "romfs",
                                                                "romfs_ext",
@@ -58,9 +58,14 @@ ModInstallResult InstallMod(const std::filesystem::path& path, const u64 program
         return Failed;
     }
 
-    LOG_INFO(Frontend, "Copied mod from {} to {}", path.string(), mod_dir.string());
+    LOG_INFO(Frontend, "Copied mod from {} to {}", Common::FS::PathToUTF8String(path),
+             Common::FS::PathToUTF8String(mod_dir));
 
     return Success;
+}
+
+ModInstallResult InstallModFromUTF8(const std::string& path, const u64 program_id, const bool copy) {
+    return InstallMod(std::filesystem::path{Common::FS::ToU8String(path)}, program_id, copy);
 }
 
 } // namespace FrontendCommon
