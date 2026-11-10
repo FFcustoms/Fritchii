@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -54,6 +55,21 @@ public:
 };
 
 constexpr u64 ProgramId = 0x0100000000000000ULL;
+
+class CurrentDirectoryGuard {
+public:
+    explicit CurrentDirectoryGuard(const fs::path& path) : original{fs::current_path()} {
+        fs::current_path(path);
+    }
+
+    ~CurrentDirectoryGuard() {
+        std::error_code ec;
+        fs::current_path(original, ec);
+    }
+
+private:
+    fs::path original;
+};
 } // namespace
 
 TEST_CASE("Reinstalling a mod from its installed folder preserves it", "[frontend_common][mod_manager]") {
@@ -91,6 +107,86 @@ TEST_CASE("Installing a separate mod still copies or moves and replaces old file
     CHECK(fixture.ReadPayload(installed) == "new mod");
     CHECK_FALSE(fs::exists(installed / "stale"));
     CHECK(fs::exists(source) == copy);
+}
+
+TEST_CASE("Mod installation accepts relative paths and trailing separators",
+          "[frontend_common][mod_manager]") {
+    const bool copy = GENERATE(true, false);
+    const bool replace = GENERATE(false, true);
+    const auto spelling = GENERATE(0, 1, 2, 3);
+    ModInstallFixture fixture;
+    const auto source = fixture.root / "download" / "SampleMod";
+    const auto installed = fixture.Installed();
+    fixture.WriteMod(source, "new mod");
+    if (replace) {
+        fixture.WriteMod(installed, "old mod");
+        REQUIRE(std::ofstream(installed / "stale").put('x').good());
+    }
+    CurrentDirectoryGuard current_directory(fixture.root);
+    const auto selected = spelling == 0 ? fs::path{"download/SampleMod"}
+                          : spelling == 1 ? fs::path{"download/SampleMod/"}
+                          : spelling == 2 ? source / ""
+                                          : source / ".";
+
+    REQUIRE(FrontendCommon::InstallMod(selected, ProgramId, copy) == FrontendCommon::Success);
+    CHECK(fixture.ReadPayload(installed) == "new mod");
+    CHECK_FALSE(fs::exists(installed / "stale"));
+    CHECK(fs::exists(source) == copy);
+}
+
+TEST_CASE("A mod selected as the current directory uses its folder name",
+          "[frontend_common][mod_manager]") {
+    ModInstallFixture fixture;
+    const auto source = fixture.root / "download" / "SampleMod";
+    fixture.WriteMod(source, "new mod");
+    CurrentDirectoryGuard current_directory(source);
+
+    REQUIRE(FrontendCommon::InstallMod(".", ProgramId) == FrontendCommon::Success);
+    CHECK(fixture.ReadPayload(fixture.Installed()) == "new mod");
+    CHECK(fixture.ReadPayload(source) == "new mod");
+}
+
+TEST_CASE("Equivalent source spellings do not remove installed mods or their siblings",
+          "[frontend_common][mod_manager]") {
+    const bool copy = GENERATE(true, false);
+    const auto spelling = GENERATE(0, 1, 2, 3);
+    ModInstallFixture fixture;
+    const auto installed = fixture.Installed();
+    fixture.WriteMod(installed, "keep this mod");
+    REQUIRE(std::ofstream(installed.parent_path() / "keep").put('x').good());
+    CurrentDirectoryGuard current_directory(installed);
+    const auto selected = spelling == 0 ? fs::path{"."}
+                          : spelling == 1 ? fs::path{"../SampleMod"}
+                          : spelling == 2 ? installed / ""
+                                          : installed / ".";
+
+    CHECK(FrontendCommon::InstallMod(selected, ProgramId, copy) == FrontendCommon::Success);
+    CHECK(fixture.ReadPayload(installed) == "keep this mod");
+    CHECK(fs::exists(installed.parent_path() / "keep"));
+}
+
+TEST_CASE("Installing through an aliased parent recognizes the installed folder",
+          "[frontend_common][mod_manager]") {
+    const bool copy = GENERATE(true, false);
+    ModInstallFixture fixture;
+    const auto installed = fixture.Installed();
+    fixture.WriteMod(installed, "keep this mod");
+    fs::path selected;
+    if (const auto junction = std::getenv("FRITCHII_TEST_TEMP_ALIAS")) {
+        selected = fs::path{junction} / fixture.root.filename() / "load" /
+                   installed.parent_path().filename() / installed.filename();
+    } else {
+        std::error_code ec;
+        fs::create_directory_symlink(installed.parent_path(), fixture.root / "alias", ec);
+        if (ec) {
+            SKIP("Directory symlink creation is unavailable: " << ec.message());
+        }
+        selected = fixture.root / "alias" / installed.filename();
+    }
+    REQUIRE(fs::equivalent(selected, installed));
+
+    CHECK(FrontendCommon::InstallMod(selected, ProgramId, copy) == FrontendCommon::Success);
+    CHECK(fixture.ReadPayload(installed) == "keep this mod");
 }
 
 #ifdef _WIN32

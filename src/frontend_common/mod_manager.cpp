@@ -41,20 +41,29 @@ std::vector<std::filesystem::path> GetModFolder(const std::string& root) {
 
 ModInstallResult InstallMod(const std::filesystem::path& path, const u64 program_id, const bool copy) {
     const auto program_id_string = fmt::format("{:016X}", program_id);
-    const auto mod_name = path.filename();
-    const auto mod_dir =
-        DataManager::GetDataDir(DataManager::DataDir::Mods) / program_id_string / mod_name;
+    std::filesystem::path mod_dir;
 
     try {
+        auto source = std::filesystem::absolute(path);
+        while (source.has_relative_path() &&
+               (source.filename().empty() || source.filename() == ".")) {
+            source = source.parent_path();
+        }
+        const auto mod_name = source.filename();
+        if (mod_name.empty() || mod_name == "..") {
+            return Failed;
+        }
+        mod_dir = DataManager::GetDataDir(DataManager::DataDir::Mods) / program_id_string / mod_name;
+
         // A mod selected from its installed location must not delete its own source.
-        if (std::filesystem::exists(mod_dir) && std::filesystem::equivalent(path, mod_dir)) {
+        if (std::filesystem::exists(mod_dir) && std::filesystem::equivalent(source, mod_dir)) {
             return Success;
         }
 
         std::filesystem::remove_all(mod_dir);
-        std::filesystem::copy(path, mod_dir, std::filesystem::copy_options::recursive);
+        std::filesystem::copy(source, mod_dir, std::filesystem::copy_options::recursive);
         if (!copy)
-            std::filesystem::remove_all(path);
+            std::filesystem::remove_all(source);
     } catch (std::exception& e) {
         LOG_ERROR(Frontend, "Mod install failed with message {}", e.what());
         return Failed;
