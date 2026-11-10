@@ -45,11 +45,13 @@ ModInstallResult InstallMod(const std::filesystem::path& path, const u64 program
     const auto mod_dir =
         DataManager::GetDataDir(DataManager::DataDir::Mods) / program_id_string / mod_name;
 
-    // pre-emptively remove any existing mod here
-    std::filesystem::remove_all(mod_dir);
-
-    // now copy
     try {
+        // A mod selected from its installed location must not delete its own source.
+        if (std::filesystem::exists(mod_dir) && std::filesystem::equivalent(path, mod_dir)) {
+            return Success;
+        }
+
+        std::filesystem::remove_all(mod_dir);
         std::filesystem::copy(path, mod_dir, std::filesystem::copy_options::recursive);
         if (!copy)
             std::filesystem::remove_all(path);
