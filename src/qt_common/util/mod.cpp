@@ -107,10 +107,19 @@ QStringList GetModFolders(const QString& root, const QString& fallbackName) {
             // Rename the existing mod folder.
             const auto new_path = std_path.parent_path() / name.toStdString();
             if (new_path != std_path) {
-                fs::remove_all(new_path);
-                fs::rename(std_path, new_path);
+                std::error_code ec;
+                if (!fs::equivalent(std_path, new_path, ec)) {
+                    if (fs::exists(fs::symlink_status(new_path))) {
+                        QtCommon::Frontend::Critical(
+                            tr("Mod Rename Failed"),
+                            tr("A file or folder named \"%1\" already exists. Choose another name.")
+                                .arg(name));
+                        return {};
+                    }
+                    fs::rename(std_path, new_path);
+                    std_path = new_path;
+                }
             }
-            std_path = new_path;
         }
 
         return {QString::fromStdString(std_path.string())};
